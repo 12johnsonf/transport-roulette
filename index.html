@@ -1,0 +1,577 @@
+<html>
+  <head>
+    <link rel="stylesheet" type="text/css" href="style.css">
+    <script src="jquery-3.1.1.min.js"></script>
+    <script>
+      var loc = [0,0];
+      var maxDist = 1000;
+      var rounds;
+      var appId = "a53b3c29"
+      var key = "8e9061e506ea7412143927c564a557f2"
+      var excluded = [];
+
+      var falseRail = ["910GBTHNLGR","910GCAMHTH","910GLONFLDS","910GRCTRYRD","910GSTKNWNG","910GSTMFDHL","910GBRUCGRV","910GWHHRTLA","910GSIVRST","910GBHILLPK","910GENFLDTN","910GSBURY","910GTURKYST","910GTHBLDSG","910GCLAPTON"]
+
+      $(document).ready(function(){
+        navigator.geolocation.getCurrentPosition(pos, function(){
+          alert("I need your location. Please refresh and try again.")
+        });
+      });
+
+      function rollDie(sides)
+      {
+        with(Math) return 1 + floor(random() * sides);
+      }
+
+      function rollDice(number, sides)
+      {
+        var total = 0;
+        while(number-- > 0) total += rollDie(sides);
+        return total;
+      }
+
+      function add(txt){
+        $('#log').append("<div id=\"new\">"+txt+"<br><br></div>");
+        $("#new").hide().fadeIn().removeAttr('id');
+        $("body, html").animate({
+            scrollTop: $(document).height()
+        }, 400)
+      }
+
+      function makeBaseAuth(user, pswd){
+        var token = user + ':' + pswd;
+        var hash = "";
+        if (btoa) {
+           hash = btoa(token);
+        }
+        return "Basic " + hash;
+     }
+
+      function pos(d){
+        console.log("getting position");
+        loc[0] = d.coords.latitude;
+        loc[1] = d.coords.longitude;
+        console.log(loc);
+      }
+
+      function tube1(){
+        add("Your chosen mode is: Tube");
+        var url = "https://api.tfl.gov.uk/StopPoint?lat="+loc[0]+"&lon="+loc[1]+"&stopTypes=NaptanMetroStation&radius="+maxDist+"&useStopPointHierarchy=True&returnLines=True&app_id="+appId+"&app_key="+key
+        console.log(url);
+        var exists = false;
+        $.getJSON(url, function(jd) {
+          for (index in jd.stopPoints){
+            if ($.inArray('tube', jd.stopPoints[index].modes) > -1 ) {
+              exists = true;
+              break;
+            }
+          }
+          if (exists){
+            excluded = [];
+            rounds -= 1;
+            add("There is a tube station in range. Go to "+jd.stopPoints[index].commonName);
+            add("Press this button when you get there: <br><br><input type=\"submit\" value=\"Continue\" onclick=\"tube2(\'"+jd.stopPoints[index].stationNaptan+"\')\">")
+          } else{
+            add("There is no tube station in your walking distance. Lets roll again.");
+            setTimeout(pickMode, 500);
+          }
+       });
+      }
+
+      function tube2(naptan) {
+        add("Finding lines at this station...");
+        var url = "https://api.tfl.gov.uk/StopPoint/"+naptan+"/Route?app_id="+appId+"&app_key="+key;
+
+        console.log(url);
+        $.getJSON(url, function(jd) {
+          if(jQuery.isEmptyObject(jd)){
+            add("TfL is broken, try again later...");
+            window.location.replace("http://tfl.gov.uk");
+          }
+          var dupLines = []
+          var lines = []
+          for (index in jd){
+            dupLines.push(jd[index].lineId);
+          }
+          $.each(dupLines, function(i, el){
+            if($.inArray(el, lines) === -1) lines.push(el);
+          });
+          add("The lines from this station are: "+lines.join(", "));
+          add("Picking a random line");
+          var line = lines[rollDie(lines.length)-1];
+          setTimeout(function(){
+            var d = new Date();
+            var n = d.getDay();
+            if (n == 0 || line == "waterloo-city"){
+              add("Picked the waterloo and city, but it is Sunday, picking another line.");
+              line = "northern";
+            }
+            add("Take the "+ line +" line.");
+            var inOut = rollDie(2);
+            if (inOut == "1"){
+              inOut = "inbound";
+            } else{
+              inOut = "outbound";
+            }
+            url = "https://api-argon.tfl.gov.uk/Line/"+line+"/Arrivals/"+naptan+"?direction="+inOut+"&app_id="+appId+"&app_key="+key;
+            console.log(url);
+            $.getJSON(url, function(jd) {
+              console.log(jd);
+              inOut = jd[0].platformName;
+              add("Picking direction...");
+              setTimeout(function(){
+                add("Take the next train: "+inOut);
+                var stops = rollDie(6) + rollDie(6);
+                add("Go " + stops + " stops.");
+                add("Press this button when you get off: <br><br><input type=\"submit\" value=\"End Round & Continue\" onclick=\"pickMode()\"><br>");
+              },500);
+            });
+          }, 500);
+        });
+      }
+
+      function od1(){
+        add("Your chosen mode is: Overground or dangleway");
+        var url = "https://api.tfl.gov.uk/StopPoint?lat="+loc[0]+"&lon="+loc[1]+"&stopTypes=NaptanMetroStation,NaptanRailStation&radius="+maxDist+"&useStopPointHierarchy=True&returnLines=True&app_id="+appId+"&app_key="+key
+        console.log(url);
+        var exists = "";
+        $.getJSON(url, function(jd) {
+          for (index in jd.stopPoints){
+            console.log(jd.stopPoints[index].modes)
+            if ($.inArray('overground', jd.stopPoints[index].modes) > -1 ) {
+              exists = "overground";
+              break;
+            }
+            if ($.inArray('cable-car', jd.stopPoints[index].modes) > -1 ) {
+              exists = "cable-car";
+              break;
+            }
+          }
+          if (exists=="cable-car"){
+            excluded = [];
+            rounds -= 1;
+            add("There is a dangway \"terminal\" in range. Go to "+jd.stopPoints[index].commonName);
+            add("Press this button when you get to the other side of the thames <br><br><input type=\"submit\" value=\"Continue\" onclick=\"pickMode()\"")
+          } else if (exists=="overground") {
+            excluded = [];
+            rounds -= 1;
+            add("There is an overground station in range. Go to "+jd.stopPoints[index].commonName);
+            add("Press this button when you get there: <br><br><input type=\"submit\" value=\"Continue\" onclick=\"od2(\'"+jd.stopPoints[index].stationNaptan+"\')\">")
+          }else{
+            add("There is no dangleway or overground station in your walking distance. Lets roll again.");
+            setTimeout(pickMode, 500);
+          }
+       });
+      }
+
+      function od2(naptan){
+        var url = "https://api.tfl.gov.uk/StopPoint/"+naptan+"/Route?app_id="+appId+"&app_key="+key
+        console.log(url);
+        $.getJSON(url, function(jd) {
+          if(jQuery.isEmptyObject(jd)){
+            add("TfL is broken, try again later...");
+            window.location.replace("http://tfl.gov.uk");
+          }
+          var inOut = rollDie(2);
+          if (inOut == "1"){
+            inOut = "inbound";
+          } else{
+            inOut = "outbound";
+          }
+
+          url = "https://api-argon.tfl.gov.uk/Line/london-overground/Arrivals/"+naptan+"?direction="+inOut+"&app_id="+appId+"&app_key="+key;
+          console.log(url);
+          $.getJSON(url, function(jd) {
+            inOut = jd[0].platformName;
+            add("<br>Picking direction...");
+            setTimeout(function(){
+              add("Take the next train: "+inOut);
+              var stops = rollDie(6) + rollDie(6);
+              add("Go " + stops + " stops.");
+              add("Press this button when you get off: <br><br><input type=\"submit\" value=\"End Round & Continue\" onclick=\"pickMode()\"><br>");
+            },500);
+          });
+        });
+      }
+
+      function dt1(){
+        add("Your chosen mode is: DLR or Tram");
+        var url = "https://api.tfl.gov.uk/StopPoint?lat="+loc[0]+"&lon="+loc[1]+"&stopTypes=NaptanMetroStation&radius="+maxDist+"&useStopPointHierarchy=True&returnLines=True&app_id="+appId+"&app_key="+key
+        console.log(url);
+        var exists = "";
+        $.getJSON(url, function(jd) {
+          for (index in jd.stopPoints){
+            if ($.inArray('tram', jd.stopPoints[index].modes) > -1 ) {
+              exists = "tram";
+              break;
+            }
+            if ($.inArray('dlr', jd.stopPoints[index].modes) > -1 ) {
+              exists = "dlr";
+              break;
+            }
+          }
+          if (exists=="dlr"){
+            excluded = [];
+            rounds -= 1;
+            add("There is a DLR station in range. Go to "+jd.stopPoints[index].commonName);
+            add("Press this button when you get there: <br><br><input type=\"submit\" value=\"Continue\" onclick=\"dt2(\'"+jd.stopPoints[index].stationNaptan+"\','dlr')\">")
+          } else if (exists=="tram") {
+            excluded = [];
+            rounds -= 1;
+            add("There is an tram stop in range. Go to "+jd.stopPoints[index].commonName);
+            add("Press this button when you get there: <br><br><input type=\"submit\" value=\"Continue\" onclick=\"dt2(\'"+jd.stopPoints[index].stationNaptan+"\','tram')\"")
+          }else{
+            add("There is no DLR station or tram stop in your walking distance. Lets roll again.");
+            setTimeout(pickMode, 500);
+          }
+       });
+      }
+
+      function dt2(naptan, mode){
+        var url = "https://api.tfl.gov.uk/StopPoint/"+naptan+"/Route?app_id="+appId+"&app_key="+key;
+        console.log(url);
+        $.getJSON(url, function(jd) {
+          if(jQuery.isEmptyObject(jd)){
+            add("TfL is broken, try again later...");
+            window.location.replace("http://tfl.gov.uk");
+          }
+          var inOut = rollDie(2);
+          if (inOut == "1"){
+            inOut = "inbound";
+          } else{
+            inOut = "outbound";
+          }
+
+          url = "https://api-argon.tfl.gov.uk/Line/"+mode+"/Arrivals/"+naptan+"?direction="+inOut+"&app_id="+appId+"&app_key="+key;
+          console.log(url);
+          $.getJSON(url, function(jd) {
+            inOut = jd[0].platformName;
+            destination = jd[0].destinationName;
+            add("<br>Picking direction...");
+            setTimeout(function(){
+              add("Take the next service from "+inOut+" towards "+destination);
+              var stops = rollDie(6) + rollDie(6);
+              add("Go " + stops + " stops.");
+              add("Press this button when you get off: <br><br><input type=\"submit\" value=\"End Round & Continue\" onclick=\"pickMode()\"><br>");
+            },500);
+          });
+        });
+      }
+
+      function rail1() {
+        add("Your chosen mode is: National Rail");
+        var url = "https://api.tfl.gov.uk/StopPoint?lat="+loc[0]+"&lon="+loc[1]+"&stopTypes=NaptanRailStation&radius="+maxDist+"&useStopPointHierarchy=True&returnLines=True&app_id="+appId+"&app_key="+key
+        console.log(url);
+        var exists = false;
+        var og = false;
+        $.getJSON(url, function(jd) {
+          for (index in jd.stopPoints){
+            var stnNaptan = jd.stopPoints[index].stationNaptan;
+            og = false;
+            for (var dict = 0; dict < jd.stopPoints[index].lines.length; dict++) {
+              if (!$.inArray(stnNaptan, falseRail) > -1 && $.inArray('national-rail', jd.stopPoints[index].modes) > -1) {
+                exists = true;
+                rounds -= 1;
+                break;
+              }
+            }
+          }
+          if (exists){
+            excluded = [];
+            add("There is a National Rail station in range. Go to "+jd.stopPoints[index].commonName);
+            add("Press this button when you get there: <br><br><input type=\"submit\" value=\"Continue\" onclick=\"rail2(\'"+jd.stopPoints[index].stationNaptan+"\')\">")
+          } else{
+            add("There is no National Rail station in your walking distance. Lets roll again.");
+            setTimeout(pickMode, 500);
+          }
+        });
+      }
+
+      function rail2(naptan){
+        add("Checking trains from this station");
+        var tiploc = naptan.substring(4)
+        var url = "https://trphp.000webhostapp.com/tst.php?stn=search/"+tiploc;
+        $.getJSON(url, function(jd) {
+          var service = 0;
+          if (jd.services.length >= 6){
+            service = rollDie(6) - 1;
+          }
+          serviceJS = jd.services[service];
+          var now = new Date();
+          var time = parseInt(("0" + now.getHours()).slice(-2) + ("0" + now.getMinutes()).slice(-2))
+          if (serviceJS.locationDetail.realtimeArrival > time+5){
+            serviceJS = jd.services[service+1];
+          }
+          var platform = serviceJS.locationDetail.platform;
+          console.log(serviceJS);
+          url = "https://trphp.000webhostapp.com/tst.php?stn=/sercice/"+serviceJS.serciceUid+"/"+now.getFullYear()+"/"+("0" + now.getUTCMonth()).slice(-2)+"/"+("0" + now.getDate()).slice(-2)
+          $.getJSON(url, function(jd) {
+            var locs = jd.locations
+            for (index in locs){
+              if (locs[index].tiploc == tiploc){
+                break;
+              }
+            }
+            var nextNatpan = "910G"+locs[index+1].tiploc;
+            url = "http://api.tfl.gov.uk/StopPoint/"+nextNatpan;
+            $.getJSON(url, function(jd) {
+              var inLndn = true;
+              if (jd.additionalProperties.length==0 && jd.children[0].additionalProperties.length==0){
+                inLndn = false;
+              }
+              if (!inLndn){
+                add("Ah dear, the train I had in mind doesn't stop in the Oysterzone. Lets start over.");
+                rail2(naptan);
+              } else{
+                add("Get the "+serviceJS.locationDetail.realtimeDeparture+" train from platform "+platform+".");
+                add("Press this button when you get off: <br><br><input type=\"submit\" value=\"End Round & Continue\" onclick=\"pickMode()\"><br>");
+              }
+            });
+          });
+        });
+      }
+
+      var busJSON; //I'm lazy, ok!
+
+      function bus1(){
+        add("Your chosen mode is: bus");
+        var url = "https://api.tfl.gov.uk/StopPoint?lat="+loc[0]+"&lon="+loc[1]+"&stopTypes=NaptanPublicBusCoachTram&radius="+maxDist+"&useStopPointHierarchy=True&returnLines=True&app_id="+appId+"&app_key="+key;
+        console.log(url);
+        $.getJSON(url, function(jd) {
+          if (jd.stopPoints.length != 0){
+            excluded = [];
+            rounds -= 1;
+            add("There is a bus stop in range.");
+            busJSON = jd;
+            bus2();
+          } else{
+            add("There is no bus stop in your walking distance. Lets roll again.");
+            setTimeout(pickMode, 500);
+          }
+        });
+      }
+
+      function bus3(jd){
+        add("Rolling 4 die to pick a bus number...");
+        var d1 = rollDie(6);
+        var d2 = rollDie(6);
+        var d3 = rollDie(6);
+        var d4 = rollDie(6);
+        var dTotal = d1*d2*d3*d4;
+        add("The die sum to "+dTotal);
+        var routes = [];
+        for (index in jd){
+          routes.push(parseInt(jd[index].lineName.replace(/\D/g,'')));
+        }
+        console.log(routes);
+        var closest = Math.max.apply(null, routes);
+        for(var i = 0; i < routes.length; i++){
+          if(routes[i] >= dTotal && routes[i] < closest) closest = routes[i];
+        }
+        add("The bus route/s "+routes.toString()+" stop/s here");
+        add("Picked route "+closest);
+        var stops = rollDie(2,6);
+        add("Take the next "+closest+" bus "+stops+" stops");
+        if (stops>=2){
+          add("You may wish to walk. Check a map");
+        }
+        add("Press this button when you get off: <br><br><input type=\"submit\" value=\"End Round & Continue\" onclick=\"pickMode()\"><br>");
+      }
+
+      function bus2(j){
+        var j = busJSON;
+        var codes1 = [];
+        var codes2 = {};
+        codes = new Array(j.stopPoints.length);
+        for (index in j.stopPoints){
+          if(index == 6){
+            break;
+          }
+          codes1.push(j.stopPoints[index].stopLetter);
+          codes2[j.stopPoints[index].stopLetter]=j.stopPoints[index].naptanId;
+        }
+        codes1.sort();
+        var index;
+        add("Picking a stop");
+        console.log("Added");
+        while (true){
+          index = rollDie(6);
+          add("Picked stop "+index)
+          console.log(index);
+          console.log(codes1.length);
+          console.log(codes1[index]);
+          if (!(index > codes1.length)){
+            break;
+          }
+          add("Stop too far away or not in use. Rolling again");
+        }
+        var stop = codes1[index];
+        add("Go to stop "+stop);
+        var naptan = codes2[stop];
+        url = "https://api.tfl.gov.uk/StopPoint/ServiceTypes?id="+naptan+"&app_id="+appId+"&app_key="+key;
+        $.getJSON(url,bus3).fail(function(){
+          add("Bus stop not in use");
+          while (true){
+            index = rollDie(6);
+            add("Picked stop "+index)
+            console.log(index);
+            console.log(codes1.length);
+            console.log(codes1[index]);
+            if (!(index > codes1.length) && codes1[index] != stop){
+              break;
+            }
+            add("Stop too far away or not in use. Rolling again");
+          }
+          stop = codes1[index];
+          add("Go to stop "+stop);
+          url = "https://api.tfl.gov.uk/StopPoint/ServiceTypes?id="+codes2[stop]+"&app_id="+appId+"&app_key="+key;
+          $.getJSON(url,bus3);
+        });
+      }
+
+
+      function boat1(){
+        add("Your chosen mode is: River Bus");
+        var url = "https://api.tfl.gov.uk/StopPoint?lat="+loc[0]+"&lon="+loc[1]+"&stopTypes=NaptanFerryPort&radius="+maxDist+"&useStopPointHierarchy=True&returnLines=True&app_id="+appId+"&app_key="+key
+        console.log(url);
+        $.getJSON(url, function(jd) {
+          if (jd.stopPoints.length != 0){
+            excluded = [];
+            rounds -= 1;
+            add("There is a river bus stop in range. Go to "+jd.stopPoints[0].commonName);
+            busJSON = jd;
+            add("Press this button when you get there: <br><br><input type=\"submit\" value=\"Continue\" onclick=\"boat2(\'"+jd.stopPoints[0].stationNaptan+"\')\">")
+          } else{
+            add("There is no river bus stop in your walking distance. Lets roll again.");
+            setTimeout(pickMode, 500);
+          }
+        });
+      }
+
+      function boat2(naptan){
+        var j = busJSON;
+        var codes = [];
+        codes = new Array(j.stopPoints[0].lines.length);
+        for (index in j.stopPoints[0].lines){
+          if(index == 6){
+            break;
+          }
+          if (j.stopPoints[0].lines[index].name.replace(/\D/g,'') != ''){
+            codes.push(j.stopPoints[0].lines[index].name);
+          }
+        }
+        codes.sort();
+        var index;
+        add("Picking a line");
+        while (true){
+          index = rollDie(6);
+          console.log(index);
+          console.log(codes.length);
+          if (!(index > codes.length)){
+            break;
+          }
+        }
+        index-=1
+        console.log(codes);
+        console.log(index);
+        var stop = codes[index];
+        add("Take line  "+stop);
+        add("Go "+rollDie(6)+" stops");
+        add("Press this button when you get off: <br><br><input type=\"submit\" value=\"End Round & Continue\" onclick=\"pickMode()\"><br>");
+      }
+
+      function pickMode(){
+        if (rounds>=0){
+          navigator.geolocation.getCurrentPosition(pos);
+          add("Rolling...")
+          result = rollDie(6);
+          add("You rolled "+result);
+          var mode;
+          if ($.inArray(result, excluded) == -1 && excluded.length != 6){
+            excluded.push(result);
+            switch(result){
+              case 1:
+                tube1();
+                break;
+              case 2:
+                od1();
+                break;
+              case 3:
+                dt1();
+                break;
+              case 4:
+                rail1();
+                break;
+              case 5:
+                bus1();
+                break;
+              case 6:
+                boat1();
+                break;
+            }
+          }else if(excluded.length == 6){
+            add("Make sure you are in zone 1 to start and your max dist is high enough...");
+            add("Please refresh");
+          } else {
+            console.log(excluded);
+            pickMode();
+          }
+        } else {
+          add("All rounds over - now hit the pub!");
+        }
+      }
+
+      function start(){
+        maxDist = document.getElementById("maxDist").value*1000;
+        rounds = document.getElementById("rounds").value;
+        if (maxDist==0){
+          maxDist=500;
+        }
+        if (maxDist >4500){
+          madDist=4500;
+        }
+        add("Welcome to Transport Roulette: London");
+        $("#setup *").prop("disabled", true);
+        add("Lets roll a dice to pick your first transport mode");
+        setTimeout(pickMode,500);
+      }
+    </script>
+    <title>Transport roulette: London</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  </head>
+  <body>
+    <div class="row">
+      <h1>Transport Roulette: London</h1>
+      <h2>A game of chance</h2>
+    </div>
+    <div class="row">
+      <div id="rules" class="col-3 col-m-4">
+        <h3>Read first</h3>
+        Please note, long walking distances will result in longer loading times. <br><br>
+        Transport Roulette is to be played within the Oysterzone. i.e. wherever the Oystercard is valid. This area is sometimes defined by the London Rail Connections map. <br><br>
+        The aim of the game is simple: to take a journey through Greater London based completely on chance. There are no winners or losers in Transport Roulette (that is unless you end up in Penge…), this is a game purely designed on helping you explore the city. It can be played solo or with any number of friends. <br><br>
+        The game is played out over several Rounds using die to randomly determine all aspects of your travel including mode
+of transport, direction and distance. For example, a Round may instruct you to travel 5 stops North on the Bakerloo
+line or take the DLR towards Beckton for 3 stops. <br><br>
+Hopefully the die will take you further and further from your starting point, but don’t be surprised if you end up going
+round in circles or even doubling back on yourself – remember this is a game of chance after all! <br><br>
+Choose your starting point. This could be literally anywhere in London you like, but it’s recommended to start near a
+tube, rail station or at the very least a bus stop in Zone 1. This will make your first round a lot easier.<br><br>
+Choose your maximum walking distance. The reason for this will become very apparent soon. This is the maximum
+distance you are willing to walk to any mode of transport. It can be as long as you like, but we recommend half a kilometer.<br><br>
+If a line is closed because of engineering works, discount any modes of transports, lines or routes that are no longer
+available at this location. Do not worry about getting replacement buses. If a service is disrupted, you may opt to terminate the round early. <br><br><br>
+
+This is based on <a href="https://callingallstations.co.uk/2016/11/24/trl/">Andy Carter's Transport Roulette</a>
+        <br><br><br>
+      </div>
+      <div class="col-9 col-m-8">
+        <div id="setup" class="row">
+          Max walking distance (km):&emsp; <input id="maxDist" placeholder="e.g. 0.5" step="0.1" min="0.1" type="number">  (Maximum: 4.5)<br><br>
+          Number of rounds: &emsp; <input id="rounds" placeholder="e.g. 3" min="1" type="number"> <br><br>
+          <input type="submit" value="Ready" onclick="start()"> <br><br>
+        </div>
+        <div id="log" class="row"></div>
+    </div>
+  </body>
+</html>
